@@ -1,0 +1,1029 @@
+---
+output:
+  word_document: default
+  html_document: default
+---
+
+# BAN 502 Course Project- Phase 1 & 2
+## Connie Pitman
+### Analysis of the home sales in the city of Ames, Iowa utilizing the Ames dataset
+
+# PHASE 1
+
+```{r, echo=FALSE}
+knitr::include_graphics("AMES.jpg")
+```
+
+
+Load libraries
+
+```{r, warning=FALSE,message=FALSE}
+
+library(tidyverse)
+library(tidymodels)
+library(GGally) #ggcorr and ggpairs
+library(ggcorrplot) #correlation plot alternative
+library(gridExtra) #create grids of plots
+library(esquisse)#COMMENT OUT PRIOR TO KNIT!!!
+library(mice) #package for imputation
+library(VIM) #visualizing missingness
+library(ranger) #for random forests
+library(randomForest) #also for random forests
+library(caret)
+library(skimr)
+library(ggplot2)
+library(gridExtra)
+library(vip) #variable importance
+library(dplyr)
+library(lmtest) #for the Durbin-Watson test
+library(glmnet) #for Lasso, ridge, and elastic net models 
+library(MASS) #access to forward and backward selection algorithms
+library(leaps) #best subset selection
+library(splines) #for nonlinear fitting
+library(dplyr)
+library(forcats)
+library(e1071) #for statistical tasks
+library(ROCR) #for threshold selection
+library(xgboost)
+library(usemodels)
+library(nnet) #our neural network package
+library(stacks)
+library(DALEXtra)
+
+```
+
+# Read-in the dataset
+
+```{r, echo=FALSE}
+ames = read_csv("ames_student.csv")
+view(ames)
+```
+
+# Examine the structure and summary of the datasetThere (no missing data identified)
+
+```{r View Structure}
+#summary(ames) 
+#glimpse(ames) 
+#View(ames) 
+```
+
+### It does not appear to be any missing data. Convert character variables into factor and recode the response variable (above median)
+
+
+```{r, warning=FALSE,message=FALSE}
+ames=ames%>%mutate_if(is.character, as_factor)%>% 
+  mutate(Above_Median = fct_recode(Above_Median, "No" = "0", "Yes" = "1" )) 
+
+```
+
+# Data Exploration
+ 
+```{r}
+summary(ames$Above_Median)
+```
+
+```{r}
+ggplot(ames, aes(x=Above_Median)) + geom_bar() + theme_bw()
+```
+
+
+
+While the factors influencing real estate markets can vary, common factors significantly impact salesin most real estate markets. These factors include location, property conditions, and size. Reduce the data set to something more manageable by selecting Location, condition, and size variables.
+
+
+```{r, echo=FALSE}
+ames2 = ames %>%dplyr::select("Above_Median", "Neighborhood","Overall_Qual", "First_Flr_SF","Gr_Liv_Area","Total_Bsmt_SF","Garage_Area", "Garage_Cars","Full_Bath", "Year_Built", "Year_Remod_Add", "TotRms_AbvGrd", "Kitchen_Qual", "MS_Zoning", "Lot_Area")
+```
+
+
+
+```{r, warning=FALSE,message=FALSE}
+ggpairs(ames2, columns = c("TotRms_AbvGrd","Gr_Liv_Area","Full_Bath","Year_Remod_Add","Year_Built","Above_Median"))
+ 
+```
+
+
+```{r, warning=FALSE,message=FALSE}
+ggpairs(ames2, columns = c("Overall_Qual","Kitchen_Qual","MS_Zoning","Lot_Area","Above_Median"))
+```
+
+```{r, warning=FALSE,message=FALSE}
+
+ ggpairs(ames2, columns = c("Garage_Area", "Garage_Cars","First_Flr_SF", "Total_Bsmt_SF", "Above_Median"))
+```
+
+
+```{r, warning=FALSE,message=FALSE}
+ggcorr(ames2, label = "TRUE",label_round = 2)
+```
+
+
+
+# Split data: 70% Training 30% Testing
+ 
+```{r,  warning=FALSE,message=FALSE}
+set.seed(123)
+ames_split = initial_split(ames2, prop = 0.70, strata = Above_Median)
+train = training(ames_split)
+test = testing(ames_split)
+```
+ 
+ 
+```{r}
+skim(train)
+```
+```{r}
+#summary(train$Neighborhood)
+```
+
+# Explore the selected variables using "esquisser"
+```{r}
+#esquisser()
+```
+
+
+```{r,echo=FALSE}
+ggplot(train) +
+ aes(x = Year_Remod_Add, fill = Above_Median) +
+ geom_histogram(bins = 30L) +
+ scale_fill_hue(direction = 1) +
+ theme_minimal()
+```
+
+
+Neighborhood
+
+```{r,echo=FALSE}
+ggplot(train) +
+ aes(x = Neighborhood, fill = Above_Median) +
+ geom_bar() +
+ scale_fill_hue(direction = 1) +
+ theme_minimal()+theme(axis.text.x=element_text(angle = 90))
+```
+```{r, echo=FALSE}
+
+ggplot(train) +
+ aes(x = Overall_Qual, fill = Above_Median) +
+ geom_bar() +
+ scale_fill_hue(direction = 1) +
+ theme_minimal()+theme(axis.text.x=element_text(angle = 90))
+
+```
+
+```{r, echo=FALSE}
+ggplot(train) +
+ aes(x = First_Flr_SF, fill = Above_Median) +
+ geom_histogram(bins = 30L) +
+ scale_fill_hue(direction = 1) +
+ theme_minimal()
+
+```
+
+```{r, echo=FALSE}
+ggplot(train) +
+ aes(x = Gr_Liv_Area, fill = Above_Median) +
+ geom_histogram(bins = 30L) +
+ scale_fill_hue(direction = 1) +
+ theme_minimal()
+
+```
+
+
+
+```{r, echo=FALSE}
+#esquisser()
+
+ggplot(train) +
+ aes(x = Kitchen_Qual, fill = Above_Median) +
+ geom_bar() +
+ scale_fill_hue(direction = 1) +
+ theme_minimal()
+
+```
+
+
+
+```{r, echo=FALSE}
+#esquisser()
+ggplot(train) +
+ aes(x = Lot_Area, fill = Above_Median) +
+ geom_histogram(bins = 30L) +
+ scale_fill_hue(direction = 1) +
+ theme_classic() +
+ theme(legend.position = "none")
+
+```
+
+
+
+# PHASE 2
+
+```{r, echo=FALSE}
+knitr::include_graphics("AMES.jpg")
+```
+
+The best variables (by correlation and confirmed by visualization) to predict Above_Median appears to be Garage_Area (correlation=.81)Gr_liv_area (correlation = 0.81) and First_Flr_SF = .78)and there is an intuitive increase in sale price  as living area increases). 
+
+```{r, echo=FALSE}
+t1 = table(train$Above_Median, train$Neighborhood) #create a proportion table object
+#prop.table(t1, margin = 2 ) 
+```
+
+```{r}
+ames %>% group_by(Neighborhood) %>% summarize(freq = n()) %>% arrange(desc(freq))
+```
+
+
+```{r}
+
+train2<- train %>%
+  mutate_at(vars(matches("character")), as.factor) %>%
+  mutate(Above_Median = as.numeric(fct_recode(Above_Median, "No" = "0", "Yes" = "1")))
+
+#glimpse(train2)
+```
+
+```{r}
+test2<- test %>%
+  mutate_at(vars(matches("character")), as.factor) %>%
+  mutate(Above_Median = as.numeric(fct_recode(Above_Median, "No" = "0", "Yes" = "1")))
+
+#glimpse(test2)
+```
+
+
+
+
+```{r}
+ames_simple = recipe(Above_Median ~ Garage_Area, train2)
+ames_simple
+
+```
+
+Specify the type of model 
+```{r}
+lm_model = #give the model type a name 
+  linear_reg() %>% #specify that we are doing linear regression
+  set_engine("lm") #specify the specify type of linear tool we want to use 
+
+
+```
+
+combine the recipe and the model with a workflow.  
+```{r}
+lm_wflow = 
+  workflow() %>% 
+  add_model(lm_model) %>% 
+  add_recipe(ames_simple)
+
+
+```
+
+
+Fit (execute) the workflow on the dataset.  
+```{r}
+lm_fit = fit(lm_wflow, train2)
+
+```
+
+
+```{r}
+summary(lm_fit$fit$fit$fit) #the actual fit is embedded deeply in the object
+```
+
+
+```{r}
+ames_simple2 = recipe(Above_Median ~ Neighborhood, train2)
+ames_simple2
+```
+
+
+
+```{r}
+lm_model2 = #give the model type a name 
+  linear_reg() %>% #specify that we are doing linear regression
+  set_engine("lm")
+
+```
+
+
+```{r}
+lm_wflow2 = 
+  workflow() %>% 
+  add_model(lm_model) %>% 
+  add_recipe(ames_simple2)
+
+```
+
+
+```{r}
+lm_fit2 = fit(lm_wflow2, train2)
+```
+
+```{r}
+summary(lm_fit2$fit$fit$fit)
+
+```
+```{r}
+ames_simple3 = recipe(Above_Median ~ Gr_Liv_Area, train2)
+ames_simple3
+```
+
+
+
+```{r}
+lm_model3 = #give the model type a name 
+  linear_reg() %>% #specify that we are doing linear regression
+  set_engine("lm")
+
+```
+
+
+```{r}
+lm_wflow3 = 
+  workflow() %>% 
+  add_model(lm_model) %>% 
+  add_recipe(ames_simple3)
+
+```
+
+
+```{r}
+lm_fit3 = fit(lm_wflow3, train2)
+```
+
+```{r}
+summary(lm_fit3$fit$fit$fit)
+
+```
+```{r}
+ames_simple4 = recipe(Above_Median ~ Year_Built, train2)
+ames_simple4
+```
+
+
+```{r}
+lm_model4 = #give the model type a name 
+  linear_reg() %>% #specify that we are doing linear regression
+  set_engine("lm")
+```
+
+
+```{r}
+lm_wflow4 = 
+  workflow() %>% 
+  add_model(lm_model) %>% 
+  add_recipe(ames_simple4)
+```
+
+
+```{r}
+lm_fit4 = fit(lm_wflow4, train2)
+
+```
+
+```{r}
+summary(lm_fit4$fit$fit$fit)
+```
+
+```{r}
+ames_simple5 = recipe(Above_Median ~ Full_Bath, train2)
+ames_simple5
+```
+
+
+
+```{r}
+lm_model5 = #give the model type a name 
+  linear_reg() %>% #specify that we are doing linear regression
+  set_engine("lm")
+```
+
+
+```{r}
+lm_wflow5 = 
+  workflow() %>% 
+  add_model(lm_model) %>% 
+  add_recipe(ames_simple5)
+```
+
+
+```{r}
+lm_fit5 = fit(lm_wflow5, train2)
+
+```
+
+```{r}
+summary(lm_fit5$fit$fit$fit)
+```
+
+Test the model
+
+```{r}
+ames_simple_test = recipe(Above_Median ~ Neighborhood, test2)
+ames_simple_test
+```
+
+```{r}
+lm_model_test = #give the model type a name 
+  linear_reg() %>% #specify that we are doing linear regression
+  set_engine("lm")
+```
+
+
+```{r}
+lm_wflow_test = 
+  workflow() %>% 
+  add_model(lm_model_test) %>% 
+  add_recipe(ames_simple_test)
+
+```
+
+
+```{r}
+lm_fit_test = fit(lm_wflow_test, test2)
+
+
+```
+
+```{r}
+summary(lm_fit_test$fit$fit$fit)
+```
+
+Logistic regression model   
+```{r}
+ames_model = 
+  logistic_reg() %>% 
+  set_engine("glm") 
+
+ames_recipe = recipe(Above_Median ~ Neighborhood, train) %>%
+  step_other(Neighborhood, threshold = 0.01) %>%
+  step_dummy(all_nominal(), -all_outcomes()) #exclude the response variable from being dummy converted  
+
+logreg_wf = workflow() %>%
+  add_recipe(ames_recipe) %>% 
+  add_model(ames_model)
+
+ames_fit = fit(logreg_wf, train)
+
+```
+
+```{r}
+summary(ames_fit$fit$fit$fit)
+```
+
+Note the AIC of this model (a measure of model quality) is 1178.4 Use this value to compare this model to others. Smaller AIC is better. Base level neighborhood is North Ames Neighborhood is a significant variable  
+
+Add Gr_Liv_Area  
+```{R}
+ames_model = 
+  logistic_reg() %>%  
+  set_engine("glm") 
+
+ames_recipe = recipe(Above_Median ~ Neighborhood + Gr_Liv_Area, train) %>%
+  step_other(Neighborhood, threshold = 0.01) %>%
+  step_dummy(all_nominal(), -all_outcomes())
+
+logreg_wf = workflow() %>%
+  add_recipe(ames_recipe) %>% 
+  add_model(ames_model)
+
+ames_fit2 = fit(logreg_wf, train)
+```
+
+```{r}
+summary(ames_fit2$fit$fit$fit)
+```
+Gr_Liv_Area is a significant variable. More sq footage improves the Above_Median probability. The AIC of this model 883.56 is less than for the first model, so this model is better.  
+
+Add Year_Remod_Add  
+```{r}
+ames_model = 
+  logistic_reg() %>%  
+  set_engine("glm") 
+
+ames_recipe = recipe(Above_Median ~ Neighborhood + Gr_Liv_Area + Year_Remod_Add, train) %>%
+  step_other(Neighborhood, threshold = 0.01) %>%
+  step_dummy(all_nominal(), -all_outcomes())
+
+logreg_wf = workflow() %>%
+  add_recipe(ames_recipe) %>% 
+  add_model(ames_model)
+
+ames_fit3 = fit(logreg_wf, train)
+```
+
+```{r}
+summary(ames_fit3$fit$fit$fit)
+```
+In this model, Year_remod_Add  is significant  AIC of this model is Slightly improved.  
+
+
+
+```{r}
+predictions = predict(ames_fit, train, type="prob") #develop predicted probabilities
+head(predictions)
+```
+
+
+Extract the "Yes" prediction  
+```{r}
+predictions = predict(ames_fit, train, type="prob")[1]
+head(predictions)
+```
+
+Threshold selection  
+```{r}
+ROCRpred = prediction(predictions, train$Above_Median) 
+
+
+ROCRperf = performance(ROCRpred, "tpr", "fpr")
+plot(ROCRperf, colorize=TRUE, print.cutoffs.at=seq(0,1,by=0.1), text.adj=c(-0.2,1.7))
+```
+
+
+Area under the curve (AUC). AUC is a measure of the strength of the model may be used to compare models.Values closer to 1 are better.
+
+
+```{r}
+as.numeric(performance(ROCRpred, "auc")@y.values)
+
+```
+
+```{r}
+#Determine threshold to balance sensitivity and specificity
+opt.cut = function(perf, pred){
+    cut.ind = mapply(FUN=function(x, y, p){
+        d = (x - 0)^2 + (y-1)^2
+        ind = which(d == min(d))
+        c(sensitivity = y[[ind]], specificity = 1-x[[ind]], 
+            cutoff = p[[ind]])
+    }, perf@x.values, perf@y.values, pred@cutoffs)
+}
+print(opt.cut(ROCRperf, ROCRpred))
+```
+
+Test thresholds to evaluate accuracy  
+```{r}
+#confusion matrix
+#The "No" and "Yes" represent the actual values
+#The "FALSE" and "TRUE" represent our predicted values
+t1 = table(train$Above_Median,predictions > 0.4823235)
+t1
+```
+
+Calculate accuracy  
+```{r}
+(t1[1,2]+t1[2,1])/nrow(train)
+```
+Sensitivity-check
+```{r}
+678/(678+52)
+```
+
+Specificity-check
+```{r}
+651/(651+56)
+```
+
+Apply trial and error to maximize accuracy (with 0.5 as threshold)
+```{r}
+t1 = table(train$Above_Median,predictions > 0.5)
+t1
+(t1[1,2]+t1[2,1])/nrow(train)
+```
+
+Threshold = 0.6  
+```{r}
+t1 = table(train$Above_Median,predictions > 0.6)
+t1
+(t1[1,2]+t1[2,1])/nrow(train)
+```
+
+This dataset is a good example of balanced data. There are the number of homes that sold above median are almost equal to those that did not 
+
+
+
+
+Predictions on potential listing  
+```{r}
+newdata = data.frame(Neighborhood = "North_Ames", Gr_Liv_Area = 1092, Year_Remod_Add = 1968)
+predict(ames_fit3, newdata, type="prob")
+```
+
+Another Home  
+```{r}
+newdata = data.frame(Neighborhood = "Gilbert", Gr_Liv_Area = 2007, Year_Remod_Add = 1971)
+predict(ames_fit3, newdata, type="prob")
+```
+
+One more.    
+```{r}
+newdata = data.frame(Neighborhood = "Old_Town", Gr_Liv_Area = 2256, Year_Remod_Add = 1996)
+predict(ames_fit3, newdata, type="prob")
+```
+
+Model with all variables. 
+```{r}
+ames_model = 
+  logistic_reg() %>% 
+  set_engine("glm") 
+
+ames_recipe = recipe(Above_Median ~ Neighborhood + Overall_Qual + First_Flr_SF + Gr_Liv_Area + Total_Bsmt_SF + Garage_Area + Garage_Cars + Full_Bath + Year_Built +Year_Remod_Add + TotRms_AbvGrd+ Kitchen_Qual + MS_Zoning + Lot_Area , train) %>%
+  step_other(Neighborhood, threshold = 0.01) %>%
+  step_dummy(all_nominal(), -all_outcomes())
+
+logreg_wf = workflow() %>%
+  add_recipe(ames_recipe) %>% 
+  add_model(ames_model)
+
+ames_fit4 = fit(logreg_wf, train)
+```
+
+```{r}
+summary(ames_fit4$fit$fit$fit)
+```
+
+
+Convert all character variables to factors  
+
+```{r}
+ames2 = ames2 %>% mutate_if(is.character,as_factor)
+```
+
+
+
+Visualization  
+
+```{r}
+p1 = ggplot(train, aes(x = Neighborhood, fill = Above_Median)) + geom_bar(position = "fill")
+p2 = ggplot(train, aes(x = Overall_Qual, fill = Above_Median)) + geom_bar(position = "fill")
+p3 = ggplot(train, aes(x = Kitchen_Qual, fill = Above_Median)) + geom_bar(position = "fill")
+p4 = ggplot(train, aes(x = MS_Zoning, fill = Above_Median)) + geom_bar(position = "fill")
+grid.arrange(p1,p2,p3,p4)
+```
+
+
+
+
+```{r}
+p1 = ggplot(train, aes(x = Above_Median, y = Gr_Liv_Area)) + geom_boxplot()
+p2 = ggplot(train, aes(x = Above_Median, y = Year_Remod_Add)) + geom_boxplot()
+p3 = ggplot(train, aes(x = Above_Median, y = First_Flr_SF)) + geom_boxplot()
+p4 = ggplot(train, aes(x = Above_Median, y = Total_Bsmt_SF)) + geom_boxplot()
+grid.arrange(p1,p2,p3, p4)
+```
+
+Random forest  
+```{r}
+ames_recipe = recipe(Above_Median ~., train) %>%
+  step_other(Neighborhood, threshold = 0.01) %>%
+  step_dummy(all_nominal(), -all_outcomes())
+
+rf_model = rand_forest() %>% 
+  set_engine("ranger", importance = "permutation") %>% #added importance metric
+  set_mode("classification")
+
+ames_wflow = 
+  workflow() %>% 
+  add_model(rf_model) %>% 
+  add_recipe(ames_recipe)
+
+set.seed(123)
+ames_fit = fit(ames_wflow, train)
+```
+
+Predictions  
+```{r}
+trainpredrf = predict(ames_fit, train)
+head(trainpredrf)
+```
+
+```{r}
+summary(train$Above_Median)
+```
+
+```{r}
+summary(test$Above_Median)
+```
+
+
+
+
+
+Confusion matrix
+```{r}
+confusionMatrix(trainpredrf$.pred_class, train$Above_Median, 
+                positive = "Yes")
+```
+
+Predictions on test
+```{r}
+testpredrf = predict(ames_fit, test)
+head(testpredrf)
+confusionMatrix(testpredrf$.pred_class, test$Above_Median, 
+                positive = "Yes")
+```
+
+Check out variable importance
+```{r}
+ames_fit %>% pull_workflow_fit() %>% vip(geom = "point")
+```
+
+### xgboost model
+```{r}
+#use_xgboost(Above_Median ~., train) #comment out before knitting
+```
+
+```{r}
+set.seed(123)
+folds = vfold_cv(train, v = 5)
+```
+
+  
+```{r}
+start_time = Sys.time() #for timing
+
+xgboost_recipe <- 
+  recipe(formula = Above_Median ~ ., data = train) %>% 
+  #step_novel(all_nominal(), -all_outcomes()) %>% 
+  step_other(Neighborhood, threshold = 0.01) %>%
+  step_dummy(all_nominal(), -all_outcomes(), one_hot = TRUE) %>% 
+  step_zv(all_predictors()) 
+
+xgboost_spec <- 
+  boost_tree(trees = tune(), min_n = tune(), tree_depth = tune(), learn_rate = tune(), 
+    loss_reduction = tune(), sample_size = tune()) %>% 
+  set_mode("classification") %>% 
+  set_engine("xgboost") 
+
+xgboost_workflow <- 
+  workflow() %>% 
+  add_recipe(xgboost_recipe) %>% 
+  add_model(xgboost_spec) 
+
+set.seed(77680)
+xgboost_tune <-
+  tune_grid(xgboost_workflow, resamples = folds, grid = 25)
+
+end_time = Sys.time()
+end_time - start_time
+```
+
+
+
+```{r}
+best_xgb = select_best(xgboost_tune, "accuracy")
+
+final_xgb = finalize_workflow(
+  xgboost_workflow,
+  best_xgb
+)
+
+final_xgb
+```
+
+```{r}
+#fit the finalized workflow to our training data
+final_xgb_fit = fit(final_xgb, train)
+```
+
+Variable importance   
+```{r}
+xg_mod = extract_fit_parsnip(final_xgb_fit)
+vip(xg_mod$fit)
+```
+
+
+
+
+Set-up our folds
+```{r}
+set.seed(123)
+folds = vfold_cv(train, v = 5)
+```
+
+Let's build three models: A classification tree, a random forest, and an XGB model. First, some preliminaries.    
+```{r}
+ames_recipe = recipe(Above_Median ~., train) 
+
+ctrl_grid = control_stack_grid() #necessary for working with the stacks package
+ctrl_res = control_stack_resamples() #necessary for working with the stacks package
+```
+
+### Tree Model
+Set-up the classification tree  
+```{r}
+tree_model = decision_tree(cost_complexity = tune()) %>% 
+  set_engine("rpart", model = TRUE) %>% 
+  set_mode("classification")
+
+tree_recipe = ames_recipe %>%
+  step_dummy(all_nominal(),-all_outcomes())
+
+tree_workflow = workflow() %>%
+  add_model(tree_model) %>%
+  add_recipe(tree_recipe)
+
+set.seed(1234)
+tree_res = 
+  tree_workflow %>% 
+  tune_grid(
+    resamples = folds,
+    grid = 25, #try 25 reasonable values for cp
+    control = ctrl_grid #needed for stacking
+    )
+```
+
+Parameter tuning (iterative tuning)
+```{r}
+tree_res %>%
+  collect_metrics() %>%
+  ggplot(aes(cost_complexity, mean)) +
+  geom_line(size = 1.5, alpha = 0.6) +
+  geom_point(size = 2) +
+  facet_wrap(~ .metric, scales = "free", nrow = 2) 
+```
+  
+## Random Forest Model 
+
+saved the resamples to an RDS to save time
+
+```{r}
+rf_recipe = tree_recipe %>%
+   step_dummy(all_nominal(), -all_outcomes())
+ 
+ rf_model = rand_forest(mtry = tune(), min_n = tune(), trees = 200) %>% #add tuning of mtry and min_n parameters
+   set_engine("ranger", importance = "permutation") %>% #added importance metric
+   set_mode("classification")
+ 
+ rf_wflow = 
+   workflow() %>% 
+   add_model(rf_model) %>% 
+   add_recipe(rf_recipe)
+ 
+ set.seed(1234)
+ rf_res = tune_grid(
+   rf_wflow,
+   resamples = folds,
+   grid = 200, 
+   control = ctrl_grid
+)
+```
+
+
+
+```{r}
+rf_res %>%
+  collect_metrics() %>%
+  filter(.metric == "accuracy") %>%
+  mutate(min_n = factor(min_n)) %>%
+  ggplot(aes(mtry, mean, color = min_n)) +
+  geom_line(alpha = 0.5, size = 1.5) +
+  geom_point() +
+  labs(y = "Accuracy")
+```
+
+## Neural Network Model
+
+
+ 
+```{r}
+nn_recipe = ames_recipe %>%
+   step_normalize(all_predictors(), -all_nominal()) #normalize the numeric predictors, not needed for categorical
+ 
+ nn_model =
+   mlp(hidden_units = tune(), penalty = tune(),
+       epochs = tune()) %>%
+   set_mode("classification") %>%
+   set_engine("nnet", verbose = 0) #verbose = 0 reduces output from the model
+ 
+ nn_workflow <-
+   workflow() %>%
+   add_recipe(nn_recipe) %>%
+   add_model(nn_model)
+ 
+ set.seed(1234)
+ neural_res <-
+   tune_grid(nn_workflow,
+             resamples = folds,
+             grid = 200,
+             control = ctrl_grid)
+```
+
+
+## XGB
+
+```{r}
+start_time = Sys.time() #for timing
+
+tgrid = expand.grid(
+  trees = 100, #50, 100, and 150 in default 
+  min_n = 1, #fixed at 1 as default 
+  tree_depth = c(1,2,3,4), #1, 2, and 3 in default 
+  learn_rate = c(0.01, 0.1, 0.2, 0.3, 0.4), #0.3 and 0.4 in default 
+  loss_reduction = 0, #fixed at 0 in default 
+  sample_size = c(0.5, 0.8, 1)) #0.5, 0.75, and 1 in default, 
+
+xgboost_recipe <- 
+  recipe(formula = Above_Median ~ ., data = train) %>% 
+  #step_novel(all_nominal(), -all_outcomes()) %>% 
+  step_dummy(all_nominal(), -all_outcomes(), one_hot = TRUE) %>% 
+  step_zv(all_predictors()) 
+
+xgboost_spec <- 
+  boost_tree(trees = tune(), min_n = tune(), tree_depth = tune(), learn_rate = tune(), 
+    loss_reduction = tune(), sample_size = tune()) %>% 
+  set_mode("classification") %>% 
+  set_engine("xgboost") 
+
+xgboost_workflow <- 
+  workflow() %>% 
+  add_recipe(xgboost_recipe) %>% 
+  add_model(xgboost_spec) 
+
+set.seed(1234)
+xgb_res <-
+  tune_grid(xgboost_workflow, 
+            resamples = folds, 
+            grid = tgrid,
+            control = ctrl_grid)
+
+end_time = Sys.time()
+end_time-start_time
+```
+
+
+## Stacking
+ 
+```{r}
+ames_stacks = stacks() %>%
+  add_candidates(tree_res) %>%
+  add_candidates(rf_res) %>% 
+  add_candidates(neural_res) %>%
+  add_candidates(xgb_res)
+```
+
+Blend the predictions by fitting a Lasso model to the stack. 
+
+```{r}
+ames_blend = 
+  ames_stacks %>% 
+  blend_predictions(metric = metric_set(accuracy)) #fits a Lasso model to the stack  
+  #setting the metric in the above line is extremely important!!
+```
+
+
+```{r}
+autoplot(ames_blend, type = "weights")
+```
+
+
+Fit the stack to training data
+
+```{r}
+#Fit the stack on the training set
+ames_blend <-
+  ames_blend %>%
+  fit_members()
+```
+
+Predictions  
+```{r}
+trainpredstack = predict(ames_blend, train)
+head(trainpredstack)
+```
+
+Confusion matrix
+```{r}
+confusionMatrix(trainpredstack$.pred_class, train$Above_Median, 
+                positive = "Yes")
+```
+
+Predictions  
+```{r}
+testpredstack = predict(ames_blend, test)
+head(testpredstack)
+```
+
+Confusion matrix
+```{r}
+confusionMatrix(testpredstack$.pred_class, test$Above_Median, 
+                positive = "Yes")
+```
+
+
+
+
+
+
+
+
+```
+
+
+
+
+
+
+
